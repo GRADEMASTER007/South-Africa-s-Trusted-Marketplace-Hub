@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    
+    <!-- Primary SEO Meta Tags -->
+    <title>SA Market Hub | South Africa's Smart Classifieds & Business Directory</title>
+    <meta name="title" content="SA Market Hub | South Africa's Smart Classifieds & Business Directory" />
+    <meta name="description" content="South Africa's trusted local marketplace to buy, sell, and find verified services. Post bakkies, electronics, property rentals, and look up verified plumbers in Johannesburg, Cape Town, and Durban." />
+    <meta name="keywords" content="classifieds, South Africa, buy and sell, Pretoria, Johannesburg, Durban, bakkie, used cars, houses for rent, plumbing services, local marketplace, SA Market Hub" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="SA Market Hub | South Africa's Smart Classifieds & Business Directory" />
+    <meta property="og:description" content="Discover verified listings, compare local South African business profiles, and post free advertisements. Safe, secure, and integrated with Yoco." />
+    <meta property="og:image" content="https://images.unsplash.com/photo-1582407947304-fd86f028f716?w=1200&auto=format&fit=crop&q=80" />
+
+    <!-- PWA & Mobile Optimization -->
+    <meta name="theme-color" content="#2D5A27" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SA Market Hub" />
+    <link rel="apple-touch-icon" href="https://images.unsplash.com/photo-1582407947304-fd86f028f716?w=192&auto=format&fit=crop&q=80" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Google Tag Manager / Google Analytics (gtag.js) -->
+    <!-- Replace G-SAMARKETHUB with your real Google Analytics measurement ID when deploying -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-SAMARKETHUB"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-SAMARKETHUB', {
+        page_path: window.location.pathname + window.location.search
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Register PWA Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => {
+              console.log('Service Worker registered successfully! Scope:', reg.scope);
+            })
+            .catch(err => {
+              console.error('Service Worker registration failed:', err);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>
+

@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: is user signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: does the user have admin privileges
+    function isAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Helper: is owner of profile
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Helper: valid ID format (to avoid ID poisoning)
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // 1. Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isOwner(userId) && request.resource.data.role == 'user';
+      allow update: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // 2. Listings collection
+    match /listings/{listingId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // 3. Payments collection
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // 4. Reviews collection
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.reviewerId == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.reviewerId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (resource.data.reviewerId == request.auth.uid || isAdmin());
+    }
+
+    // 5. Businesses collection
+    match /businesses/{businessId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isSignedIn() && (request.resource.data.ownerId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // 6. Scam Reports collection
+    match /scam_reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.reporterId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 7. Chats collection (ChatThreads)
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && (resource.data.buyerId == request.auth.uid || resource.data.sellerId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && (request.resource.data.buyerId == request.auth.uid || request.resource.data.sellerId == request.auth.uid);
+      allow update: if isSignedIn() && (resource.data.buyerId == request.auth.uid || resource.data.sellerId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // 8. Messages collection
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid || 
+        (exists(/databases/$(database)/documents/chats/$(resource.data.chatId)) && 
+         (get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.buyerId == request.auth.uid || 
+          get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.sellerId == request.auth.uid)) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid && (
+        exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) && 
+        (get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.buyerId == request.auth.uid || 
+         get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.sellerId == request.auth.uid)
+      );
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 9. Notifications collection
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if true; // Allowed for system triggers/webhooks
+      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+  }
+}

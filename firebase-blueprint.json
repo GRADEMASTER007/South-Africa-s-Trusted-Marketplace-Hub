@@ -1,0 +1,201 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Represents the private and public profiles of the registered users in the platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique authentication identifier of the user." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "displayName": { "type": "string", "description": "The user's displayed full name." },
+        "photoURL": { "type": "string", "description": "Profile picture URL." },
+        "phoneNumber": { "type": "string", "description": "Contact phone number of the user." },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "The access permission level of the user." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "The profile registration date." },
+        "isVerified": { "type": "boolean", "description": "Whether the user account is verified." }
+      },
+      "required": ["uid", "email", "displayName", "role", "createdAt"]
+    },
+    "Listing": {
+      "title": "Listing",
+      "description": "Represents classified ads posted by users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "isNegotiable": { "type": "boolean" },
+        "category": { "type": "string" },
+        "subcategory": { "type": "string" },
+        "province": { "type": "string" },
+        "city": { "type": "string" },
+        "suburb": { "type": "string" },
+        "condition": { "type": "string", "enum": ["new", "used", "refurbished"] },
+        "contactPhone": { "type": "string" },
+        "whatsAppNumber": { "type": "string" },
+        "images": { "type": "array" },
+        "videoUrl": { "type": "string" },
+        "packageType": { "type": "string", "enum": ["free", "starter", "business", "premium"] },
+        "status": { "type": "string", "enum": ["active", "expired", "draft", "pending_approval"] },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "isFeatured": { "type": "boolean" },
+        "viewCount": { "type": "number" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" }
+      },
+      "required": ["title", "description", "price", "category", "province", "city", "packageType", "status", "userId", "createdAt"]
+    },
+    "PaymentRecord": {
+      "title": "PaymentRecord",
+      "description": "Details of Yoco charge transactions.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "listingId": { "type": "string" },
+        "amount": { "type": "number" },
+        "packageName": { "type": "string" },
+        "status": { "type": "string", "enum": ["success", "failed", "pending"] },
+        "reference": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "packageName", "status", "reference", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User reviews written on seller profiles or businesses.",
+      "type": "object",
+      "properties": {
+        "targetId": { "type": "string" },
+        "reviewerId": { "type": "string" },
+        "reviewerName": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["targetId", "reviewerId", "reviewerName", "rating", "text", "createdAt"]
+    },
+    "BusinessProfile": {
+      "title": "BusinessProfile",
+      "description": "Enterprise profiles listed in the SA Business Directory.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "companyName": { "type": "string" },
+        "description": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsApp": { "type": "string" },
+        "website": { "type": "string" },
+        "openingHours": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "rating": { "type": "number" },
+        "reviewsCount": { "type": "number" }
+      },
+      "required": ["ownerId", "companyName", "description", "address", "phone", "whatsApp"]
+    },
+    "ScamReport": {
+      "title": "ScamReport",
+      "description": "Flagged listings for spam or fraud.",
+      "type": "object",
+      "properties": {
+        "listingId": { "type": "string" },
+        "listingTitle": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "reporterEmail": { "type": "string" },
+        "reason": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "resolved", "dismissed"] }
+      },
+      "required": ["listingId", "listingTitle", "reporterId", "reporterEmail", "reason", "description", "createdAt", "status"]
+    },
+    "ChatThread": {
+      "title": "ChatThread",
+      "description": "Thread mapping buyers and sellers for active listings.",
+      "type": "object",
+      "properties": {
+        "listingId": { "type": "string" },
+        "listingTitle": { "type": "string" },
+        "listingPrice": { "type": "number" },
+        "buyerId": { "type": "string" },
+        "buyerName": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "lastMessageText": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["listingId", "listingTitle", "buyerId", "buyerName", "sellerId", "sellerName", "lastMessageText", "lastMessageAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Individual messages inside a chat thread.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "senderId", "senderName", "text", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notifications for payment alerts, chat messages, or system statuses.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["payment", "system", "chat"] },
+        "read": { "type": "boolean" },
+        "listingId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "UserProfile",
+      "description": "Contains user registration profiles and metadata."
+    },
+    "listings": {
+      "schema": "Listing",
+      "description": "Classified marketplace advertisements."
+    },
+    "payments": {
+      "schema": "PaymentRecord",
+      "description": "Monetary billing history for promoted posts."
+    },
+    "reviews": {
+      "schema": "Review",
+      "description": "Ratings and feedback on businesses and sellers."
+    },
+    "businesses": {
+      "schema": "BusinessProfile",
+      "description": "Registered company and services profiles."
+    },
+    "scam_reports": {
+      "schema": "ScamReport",
+      "description": "Marketplace moderation and abuse reports."
+    },
+    "chats": {
+      "schema": "ChatThread",
+      "description": "Chat thread references."
+    },
+    "messages": {
+      "schema": "Message",
+      "description": "Individual micro-messages."
+    },
+    "notifications": {
+      "schema": "Notification",
+      "description": "Account system and payment notifications."
+    }
+  }
+}

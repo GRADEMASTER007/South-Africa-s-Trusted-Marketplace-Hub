@@ -1,0 +1,6 @@
+{
+  "name": "SA Market Hub",
+  "description": "An AI-powered classified advertisements marketplace for South Africa, featuring province-wide listing creation, advanced filters, Google Maps, Yoco payments, and Gemini-powered smart assistants.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
