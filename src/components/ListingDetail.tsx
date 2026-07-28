@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MapPin, Phone, MessageCircle, Flag, CornerDownLeft, Sparkles, Heart, ShieldAlert, CheckCircle, ChevronLeft, ChevronRight, Share2, Copy, Check, Facebook, TrendingDown, TrendingUp, Bell, LineChart as LineChartIcon, Twitter, Mail, Linkedin, Send } from 'lucide-react';
+import { MapPin, Phone, MessageCircle, Flag, CornerDownLeft, Sparkles, Heart, ShieldAlert, CheckCircle, ChevronLeft, ChevronRight, Share2, Copy, Check, Facebook, TrendingDown, TrendingUp, Bell, LineChart as LineChartIcon, Twitter, Mail, Linkedin, Send, X, MessageSquare, ExternalLink, ShieldCheck, User } from 'lucide-react';
 import { Listing, ChatThread, Message } from '../types';
 import { db, isFirebaseAvailable } from '../firebase';
 import { collection, addDoc, getDocs, query, where, updateDoc, doc, deleteDoc } from 'firebase/firestore';
@@ -48,6 +48,8 @@ export default function ListingDetail({
   onSelectListing
 }: ListingDetailProps) {
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const [touchEndX, setTouchEndX] = useState<number | null>(null);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -140,12 +142,7 @@ export default function ListingDetail({
     }
   };
 
-  const [isSaved, setIsSaved] = useState(() => {
-    if (!currentUser) return false;
-    const saved = JSON.parse(localStorage.getItem(`samarket_saved_${currentUser.uid}`) || '[]');
-    return saved.includes(listing.id);
-  });
-
+  const [isBookmarked, setIsBookmarked] = useState<boolean>(false);
   const [messageText, setMessageText] = useState('');
   const [chatSuccess, setChatSuccess] = useState<string | null>(null);
   const [isSendingChat, setIsSendingChat] = useState(false);
@@ -156,59 +153,74 @@ export default function ListingDetail({
   const [reportDesc, setReportDesc] = useState('');
   const [reportSuccess, setReportSuccess] = useState(false);
 
-  const toggleSaveAd = () => {
-    if (!currentUser) {
-      alert("Please login first to save this advertisement.");
-      return;
-    }
-    const savedKey = `samarket_saved_${currentUser.uid}`;
-    const saved = JSON.parse(localStorage.getItem(savedKey) || '[]');
-    if (isSaved) {
-      const filtered = saved.filter((id: string) => id !== listing.id);
-      localStorage.setItem(savedKey, JSON.stringify(filtered));
-      setIsSaved(false);
-    } else {
-      saved.push(listing.id);
-      localStorage.setItem(savedKey, JSON.stringify(saved));
-      setIsSaved(true);
+  // Contact Seller Modal states
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [contactChannel, setContactChannel] = useState<'whatsapp' | 'email' | 'chat'>('whatsapp');
+  const [templateKey, setTemplateKey] = useState<'availability' | 'price' | 'today' | 'offer' | 'delivery' | 'custom'>('availability');
+  const [buyerName, setBuyerName] = useState(currentUser?.displayName || '');
+  const [buyerContact, setBuyerContact] = useState(currentUser?.email || currentUser?.phoneNumber || '');
+  const [customInquiryText, setCustomInquiryText] = useState('');
+  const [contactModalSuccess, setContactModalSuccess] = useState<string | null>(null);
+
+  const getInquiryMessage = (key: string, name: string) => {
+    const greeting = name ? ` My name is ${name}.` : '';
+    switch (key) {
+      case 'availability':
+        return `Howzit ${listing.userName}!${greeting} I saw your listing "${listing.title}" for R ${listing.price.toLocaleString('en-ZA')} on SA Market Hub. Is this item still available?`;
+      case 'price':
+        return `Howzit ${listing.userName}!${greeting} I am interested in "${listing.title}". What is your best cash price?`;
+      case 'today':
+        return `Howzit ${listing.userName}!${greeting} I am located nearby and interested in "${listing.title}". Can I view or test it today? Please let me know what date and time works best for you.`;
+      case 'offer':
+        return `Howzit ${listing.userName}!${greeting} I am interested in "${listing.title}". Would you consider an offer for this item? Please let me know what your best negotiable price is. Cheers!`;
+      case 'delivery':
+        return `Howzit ${listing.userName}!${greeting} Regarding "${listing.title}", is courier shipping or local delivery available to my area, or is it collection only?`;
+      case 'custom':
+      default:
+        return customInquiryText || `Howzit ${listing.userName}! I am interested in your listing "${listing.title}" on SA Market Hub.`;
     }
   };
 
-  const [isFollowed, setIsFollowed] = useState<boolean>(false);
+  const handleSelectTemplate = (key: 'availability' | 'price' | 'today' | 'offer' | 'delivery' | 'custom') => {
+    setTemplateKey(key);
+    if (key !== 'custom') {
+      setCustomInquiryText(getInquiryMessage(key, buyerName));
+    }
+  };
 
   useEffect(() => {
     if (!currentUser || !listing) return;
-    const checkFollowed = async () => {
+    const checkBookmarked = async () => {
       try {
         if (isFirebaseAvailable && db) {
           const q = query(
-            collection(db, "follows"),
+            collection(db, "bookmarks"),
             where("userId", "==", currentUser.uid),
             where("listingId", "==", listing.id)
           );
           const snap = await getDocs(q);
-          setIsFollowed(!snap.empty);
+          setIsBookmarked(!snap.empty);
         } else {
-          const localFollowed = JSON.parse(localStorage.getItem(`samarket_follows_${currentUser.uid}`) || '[]');
-          setIsFollowed(localFollowed.includes(listing.id));
+          const localBookmarked = JSON.parse(localStorage.getItem(`samarket_bookmarks_${currentUser.uid}`) || '[]');
+          setIsBookmarked(localBookmarked.includes(listing.id));
         }
       } catch (err) {
-        console.error("Error checking followed status:", err);
+        console.error("Error checking bookmarked status:", err);
       }
     };
-    checkFollowed();
+    checkBookmarked();
   }, [currentUser, listing?.id]);
 
-  const toggleFollowAd = async () => {
+  const toggleBookmark = async () => {
     if (!currentUser) {
-      alert("Please login first to follow this advertisement's price updates.");
+      alert("Please login first to bookmark this advertisement.");
       return;
     }
 
     try {
       if (isFirebaseAvailable && db) {
         const q = query(
-          collection(db, "follows"),
+          collection(db, "bookmarks"),
           where("userId", "==", currentUser.uid),
           where("listingId", "==", listing.id)
         );
@@ -216,9 +228,9 @@ export default function ListingDetail({
         if (!snap.empty) {
           const deletePromises = snap.docs.map(doc => deleteDoc(doc.ref));
           await Promise.all(deletePromises);
-          setIsFollowed(false);
+          setIsBookmarked(false);
         } else {
-          await addDoc(collection(db, "follows"), {
+          await addDoc(collection(db, "bookmarks"), {
             userId: currentUser.uid,
             listingId: listing.id,
             listingTitle: listing.title,
@@ -226,23 +238,23 @@ export default function ListingDetail({
             initialPrice: listing.price,
             createdAt: new Date().toISOString()
           });
-          setIsFollowed(true);
+          setIsBookmarked(true);
         }
       } else {
-        const localKey = `samarket_follows_${currentUser.uid}`;
-        const followed = JSON.parse(localStorage.getItem(localKey) || '[]');
-        if (followed.includes(listing.id)) {
-          const filtered = followed.filter((id: string) => id !== listing.id);
+        const localKey = `samarket_bookmarks_${currentUser.uid}`;
+        const bookmarked = JSON.parse(localStorage.getItem(localKey) || '[]');
+        if (bookmarked.includes(listing.id)) {
+          const filtered = bookmarked.filter((id: string) => id !== listing.id);
           localStorage.setItem(localKey, JSON.stringify(filtered));
-          setIsFollowed(false);
+          setIsBookmarked(false);
         } else {
-          followed.push(listing.id);
-          localStorage.setItem(localKey, JSON.stringify(followed));
-          setIsFollowed(true);
+          bookmarked.push(listing.id);
+          localStorage.setItem(localKey, JSON.stringify(bookmarked));
+          setIsBookmarked(true);
         }
       }
     } catch (err) {
-      console.error("Error toggling follow:", err);
+      console.error("Error toggling bookmark:", err);
     }
   };
 
@@ -302,6 +314,87 @@ export default function ListingDetail({
     }
   };
 
+  const handleSendInquiry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const messageToSend = customInquiryText.trim() || getInquiryMessage(templateKey, buyerName);
+
+    if (contactChannel === 'whatsapp') {
+      const cleanWA = listing.whatsAppNumber ? listing.whatsAppNumber.replace(/\D/g, '') : listing.contactPhone.replace(/\D/g, '');
+      const waNum = cleanWA.startsWith('0') ? '27' + cleanWA.substring(1) : cleanWA;
+      const url = `https://wa.me/${waNum}?text=${encodeURIComponent(messageToSend)}`;
+      window.open(url, '_blank');
+      setContactModalSuccess('Opening WhatsApp with your pre-filled inquiry template...');
+      setTimeout(() => {
+        setContactModalSuccess(null);
+        setIsContactModalOpen(false);
+      }, 1500);
+    } else if (contactChannel === 'email') {
+      const subject = encodeURIComponent(`Inquiry: ${listing.title} - SA Market Hub`);
+      const body = encodeURIComponent(`${messageToSend}\n\nSender Contact Details:\nName: ${buyerName || 'Interested Buyer'}\nContact Info: ${buyerContact || 'Not provided'}\n\nListing Reference: ${shareUrl}`);
+      const sellerEmail = (listing as any).userEmail || 'seller@samarkethub.co.za';
+      const mailtoUrl = `mailto:${sellerEmail}?subject=${subject}&body=${body}`;
+      window.open(mailtoUrl, '_blank');
+      setContactModalSuccess('Opening email app with your pre-filled inquiry template...');
+      setTimeout(() => {
+        setContactModalSuccess(null);
+        setIsContactModalOpen(false);
+      }, 1500);
+    } else if (contactChannel === 'chat') {
+      if (!currentUser) {
+        alert("Please sign in first to send in-app secure messages.");
+        return;
+      }
+      setIsSendingChat(true);
+      try {
+        const chatId = `chat_${Math.random().toString(36).substring(2, 9)}`;
+        const newChat: ChatThread = {
+          id: chatId,
+          listingId: listing.id,
+          listingTitle: listing.title,
+          listingPrice: listing.price,
+          listingImage: listing.images?.[0] || '',
+          buyerId: currentUser.uid,
+          buyerName: buyerName || currentUser.displayName || 'Buyer',
+          sellerId: listing.userId,
+          sellerName: listing.userName,
+          lastMessageText: messageToSend,
+          lastMessageAt: new Date().toISOString()
+        };
+
+        const newMsg: Message = {
+          id: `msg_${Math.random().toString(36).substring(2, 9)}`,
+          chatId,
+          senderId: currentUser.uid,
+          senderName: buyerName || currentUser.displayName || 'Me',
+          text: messageToSend,
+          createdAt: new Date().toISOString()
+        };
+
+        if (isFirebaseAvailable && db) {
+          await addDoc(collection(db, "chats"), newChat);
+          await addDoc(collection(db, "messages"), newMsg);
+        } else {
+          const chatsLocal = JSON.parse(localStorage.getItem('samarket_chats') || '[]');
+          const msgsLocal = JSON.parse(localStorage.getItem('samarket_messages') || '[]');
+          chatsLocal.push(newChat);
+          msgsLocal.push(newMsg);
+          localStorage.setItem('samarket_chats', JSON.stringify(chatsLocal));
+          localStorage.setItem('samarket_messages', JSON.stringify(msgsLocal));
+        }
+
+        setContactModalSuccess('Inquiry delivered to seller inbox! You can check replies in your Account Dashboard.');
+        setTimeout(() => {
+          setContactModalSuccess(null);
+          setIsContactModalOpen(false);
+        }, 1800);
+      } catch (err) {
+        console.error("Error sending internal message:", err);
+      } finally {
+        setIsSendingChat(false);
+      }
+    }
+  };
+
   const handleSubmitScamReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -356,27 +449,15 @@ export default function ListingDetail({
 
         <div className="flex gap-2">
           <button
-            onClick={toggleSaveAd}
+            onClick={toggleBookmark}
             className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-sm border transition-all ${
-              isSaved 
-                ? 'bg-red-50/50 text-red-600 border-red-200' 
-                : 'bg-natural-bg text-natural-text hover:bg-natural-cream/50 border-natural-border'
-            }`}
-          >
-            <Heart className={`w-4 h-4 ${isSaved ? 'fill-red-500 text-red-500' : ''}`} />
-            {isSaved ? 'Ad Saved' : 'Save Ad'}
-          </button>
-
-          <button
-            onClick={toggleFollowAd}
-            className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-sm border transition-all ${
-              isFollowed 
+              isBookmarked 
                 ? 'bg-natural-green/10 text-natural-green border-natural-green/30' 
                 : 'bg-natural-bg text-natural-text hover:bg-natural-cream/50 border-natural-border'
             }`}
           >
-            <Bell className={`w-4 h-4 ${isFollowed ? 'fill-natural-green text-natural-green animate-pulse' : ''}`} />
-            {isFollowed ? 'Following Price' : 'Follow Price'}
+            <Bell className={`w-4 h-4 ${isBookmarked ? 'fill-natural-green text-natural-green animate-pulse' : ''}`} />
+            {isBookmarked ? 'Watching Price & Status' : 'Watchlist & Bookmark'}
           </button>
 
           {/* Social Sharing Dropdown Menu */}
@@ -517,53 +598,130 @@ export default function ListingDetail({
         {/* Main Left Side (Images, Description, Map) */}
         <div className="lg:col-span-2 space-y-6">
           
-          {/* Photos slider */}
-          <div className="bg-gray-900 rounded-3xl aspect-16/10 relative overflow-hidden flex items-center justify-center border border-gray-800 shadow-xl group">
-            <img
-              src={listing.images?.[activeImageIdx] || 'https://images.unsplash.com/photo-1582407947304-fd86f028f716?w=1000&auto=format&fit=crop&q=80'}
-              alt={listing.title}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-contain"
-            />
+          {/* Photos Carousel with Touch Swipe and Navigation Dots */}
+          {(() => {
+            const imagesList = listing.images && listing.images.length > 0
+              ? listing.images
+              : ['https://images.unsplash.com/photo-1582407947304-fd86f028f716?w=1000&auto=format&fit=crop&q=80'];
 
-            {listing.images && listing.images.length > 1 && (
-              <>
-                <button
-                  onClick={() => setActiveImageIdx(prev => (prev === 0 ? listing.images.length - 1 : prev - 1))}
-                  className="absolute left-4 p-2 bg-black/60 text-white rounded-full hover:bg-black/80 cursor-pointer hidden group-hover:block transition-all"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => setActiveImageIdx(prev => (prev === listing.images.length - 1 ? 0 : prev + 1))}
-                  className="absolute right-4 p-2 bg-black/60 text-white rounded-full hover:bg-black/80 cursor-pointer hidden group-hover:block transition-all"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </>
-            )}
+            const handleTouchStart = (e: React.TouchEvent) => {
+              setTouchStartX(e.targetTouches[0].clientX);
+              setTouchEndX(null);
+            };
 
-            <div className="absolute bottom-4 right-4 bg-black/70 text-white px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider backdrop-blur-xs">
-              Image {activeImageIdx + 1} of {listing.images?.length || 1}
-            </div>
-          </div>
+            const handleTouchMove = (e: React.TouchEvent) => {
+              setTouchEndX(e.targetTouches[0].clientX);
+            };
 
-          {/* Small images dock */}
-          {listing.images && listing.images.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {listing.images.map((img, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setActiveImageIdx(idx)}
-                  className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 cursor-pointer transition-all ${
-                    idx === activeImageIdx ? 'border-natural-green scale-105' : 'border-transparent opacity-75'
-                  }`}
+            const handleTouchEnd = () => {
+              if (touchStartX === null || touchEndX === null) return;
+              const distance = touchStartX - touchEndX;
+              const isLeftSwipe = distance > 40;
+              const isRightSwipe = distance < -40;
+
+              if (isLeftSwipe && imagesList.length > 1) {
+                setActiveImageIdx(prev => (prev === imagesList.length - 1 ? 0 : prev + 1));
+              } else if (isRightSwipe && imagesList.length > 1) {
+                setActiveImageIdx(prev => (prev === 0 ? imagesList.length - 1 : prev - 1));
+              }
+
+              setTouchStartX(null);
+              setTouchEndX(null);
+            };
+
+            return (
+              <div className="space-y-3">
+                <div
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  className="bg-gray-900 rounded-3xl aspect-16/10 relative overflow-hidden flex items-center justify-center border border-gray-800 shadow-xl group select-none touch-pan-y"
                 >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
+                  <img
+                    src={imagesList[activeImageIdx] || imagesList[0]}
+                    alt={listing.title}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-contain transition-opacity duration-300"
+                  />
+
+                  {imagesList.length > 1 && (
+                    <>
+                      {/* Left Arrow Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveImageIdx(prev => (prev === 0 ? imagesList.length - 1 : prev - 1));
+                        }}
+                        aria-label="Previous image"
+                        className="absolute left-3 p-2.5 bg-black/60 hover:bg-black/85 text-white rounded-full cursor-pointer transition-all border border-white/10 shadow-md backdrop-blur-xs focus:outline-none"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+
+                      {/* Right Arrow Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveImageIdx(prev => (prev === imagesList.length - 1 ? 0 : prev + 1));
+                        }}
+                        aria-label="Next image"
+                        className="absolute right-3 p-2.5 bg-black/60 hover:bg-black/85 text-white rounded-full cursor-pointer transition-all border border-white/10 shadow-md backdrop-blur-xs focus:outline-none"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+
+                      {/* Centered Navigation Dots Indicator */}
+                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 shadow-lg z-10">
+                        {imagesList.map((_, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveImageIdx(idx);
+                            }}
+                            aria-label={`Go to image slide ${idx + 1}`}
+                            className={`transition-all duration-300 cursor-pointer ${
+                              idx === activeImageIdx
+                                ? 'w-6 h-2 bg-natural-green rounded-full shadow-xs'
+                                : 'w-2 h-2 bg-white/50 hover:bg-white/90 rounded-full'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Image counter pill */}
+                  <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider backdrop-blur-xs border border-white/10 shadow-sm">
+                    {activeImageIdx + 1} / {imagesList.length}
+                  </div>
+                </div>
+
+                {/* Small images dock */}
+                {imagesList.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    {imagesList.map((img, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setActiveImageIdx(idx)}
+                        className={`w-16 h-16 rounded-2xl overflow-hidden shrink-0 border-2 cursor-pointer transition-all ${
+                          idx === activeImageIdx
+                            ? 'border-natural-green ring-2 ring-natural-green/20 scale-105 shadow-xs'
+                            : 'border-transparent opacity-70 hover:opacity-100'
+                        }`}
+                      >
+                        <img src={img} alt="" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Video Preview */}
           {listing.videoUrl && (
@@ -759,6 +917,17 @@ export default function ListingDetail({
                 </span>
               )}
             </div>
+            
+            <button
+              onClick={() => {
+                setCustomInquiryText(getInquiryMessage(templateKey, buyerName));
+                setIsContactModalOpen(true);
+              }}
+              className="w-full bg-white text-natural-green hover:bg-natural-cream font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors cursor-pointer shadow-sm mt-2"
+            >
+              <MessageSquare className="w-4 h-4 text-natural-green" />
+              <span>Contact Seller / Send Inquiry</span>
+            </button>
           </div>
 
           {/* Price History Timeline Card */}
@@ -826,22 +995,38 @@ export default function ListingDetail({
  
             {/* Direct Connect Buttons */}
             <div className="space-y-2 pt-2 border-t border-natural-border">
-              <a
-                href={`tel:${listing.contactPhone}`}
-                className="w-full bg-natural-text hover:opacity-90 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-xs transition-opacity cursor-pointer"
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomInquiryText(getInquiryMessage(templateKey, buyerName));
+                  setIsContactModalOpen(true);
+                }}
+                className="w-full bg-natural-green hover:bg-natural-green-hover text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors cursor-pointer shadow-md"
               >
-                <Phone className="w-4 h-4 text-emerald-400" />
-                Call: {listing.contactPhone}
-              </a>
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full bg-natural-green hover:bg-natural-green-hover text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors cursor-pointer shadow-sm"
-              >
-                <MessageCircle className="w-4.5 h-4.5" />
-                Chat via WhatsApp
-              </a>
+                <MessageSquare className="w-4 h-4" />
+                <span>Contact Seller / Send Inquiry</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <a
+                  href={`tel:${listing.contactPhone}`}
+                  className="bg-natural-text hover:opacity-90 text-white font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-[11px] transition-opacity cursor-pointer truncate"
+                  title={`Call ${listing.contactPhone}`}
+                >
+                  <Phone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="truncate">Call Seller</span>
+                </a>
+                <a
+                  href={waLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-[11px] transition-colors cursor-pointer shadow-2xs truncate"
+                  title="Direct WhatsApp"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">WhatsApp</span>
+                </a>
+              </div>
             </div>
           </div>
  
@@ -967,6 +1152,276 @@ export default function ListingDetail({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Contact Seller Modal Overlay */}
+      {isContactModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs text-natural-text animate-fade-in">
+          <div className="bg-natural-bg w-full max-w-lg rounded-3xl border border-natural-border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            
+            {/* Modal Header */}
+            <div className="p-5 bg-natural-cream/40 border-b border-natural-border flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <img
+                  src={listing.userPhoto || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=60'}
+                  alt={listing.userName}
+                  className="w-10 h-10 rounded-full border border-natural-border object-cover shrink-0"
+                />
+                <div>
+                  <h3 className="font-serif font-black text-sm text-natural-text flex items-center gap-1.5">
+                    <span>Contact {listing.userName}</span>
+                    <CheckCircle className="w-3.5 h-3.5 text-natural-green shrink-0" />
+                  </h3>
+                  <p className="text-[11px] text-natural-muted font-medium truncate max-w-[260px]">
+                    Re: {listing.title} &bull; <span className="text-natural-green font-bold">R {listing.price.toLocaleString('en-ZA')}</span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setContactModalSuccess(null);
+                  setIsContactModalOpen(false);
+                }}
+                className="p-2 text-natural-dusty hover:text-natural-text bg-white hover:bg-natural-cream rounded-full border border-natural-border transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <form onSubmit={handleSendInquiry} className="p-5 overflow-y-auto space-y-4">
+              
+              {contactModalSuccess ? (
+                <div className="p-6 text-center space-y-3 bg-emerald-50 border border-emerald-200 rounded-2xl animate-fade-in">
+                  <div className="p-3 bg-emerald-100 text-emerald-700 rounded-full w-12 h-12 mx-auto flex items-center justify-center">
+                    <CheckCircle className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-serif font-bold text-sm text-emerald-900">Inquiry Handled!</h4>
+                  <p className="text-xs text-emerald-800 leading-relaxed font-medium">
+                    {contactModalSuccess}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Channel Selector Tabs */}
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-extrabold text-natural-dusty uppercase tracking-wider">
+                      Select Contact Method
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setContactChannel('whatsapp')}
+                        className={`flex flex-col items-center justify-center p-2.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                          contactChannel === 'whatsapp'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-natural-cream/30 text-natural-text border-natural-border hover:bg-natural-cream'
+                        }`}
+                      >
+                        <MessageCircle className="w-4 h-4 mb-0.5" />
+                        <span>WhatsApp</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setContactChannel('email')}
+                        className={`flex flex-col items-center justify-center p-2.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                          contactChannel === 'email'
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                            : 'bg-natural-cream/30 text-natural-text border-natural-border hover:bg-natural-cream'
+                        }`}
+                      >
+                        <Mail className="w-4 h-4 mb-0.5" />
+                        <span>Email</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setContactChannel('chat')}
+                        className={`flex flex-col items-center justify-center p-2.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                          contactChannel === 'chat'
+                            ? 'bg-natural-green text-white border-natural-green shadow-sm'
+                            : 'bg-natural-cream/30 text-natural-text border-natural-border hover:bg-natural-cream'
+                        }`}
+                      >
+                        <MessageSquare className="w-4 h-4 mb-0.5" />
+                        <span>In-App Chat</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Quick Reply Message Templates Dropdown */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[10px] font-extrabold text-natural-dusty uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-natural-green" />
+                        <span>Quick Reply Message Templates</span>
+                      </label>
+                      <span className="text-[10px] text-natural-muted font-medium">Select to auto-fill text</span>
+                    </div>
+
+                    {/* Template Dropdown Menu */}
+                    <select
+                      value={templateKey}
+                      onChange={(e) => handleSelectTemplate(e.target.value as any)}
+                      className="w-full text-xs font-bold bg-white border border-natural-border rounded-xl px-3 py-2.5 outline-none focus:ring-1 focus:ring-natural-green text-natural-text cursor-pointer shadow-2xs"
+                    >
+                      <option value="availability">❓ Is this item still available?</option>
+                      <option value="price">💰 What is your best price?</option>
+                      <option value="today">📅 Can I view it today?</option>
+                      <option value="offer">🏷️ Would you accept a cash offer?</option>
+                      <option value="delivery">🚚 Is courier / shipping available?</option>
+                      <option value="custom">✏️ Custom Message / Type your own</option>
+                    </select>
+
+                    {/* Quick Pill Shortcuts */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectTemplate('availability')}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          templateKey === 'availability'
+                            ? 'bg-natural-green text-white border-natural-green shadow-2xs'
+                            : 'bg-natural-cream/40 text-natural-dusty border-natural-border hover:text-natural-text'
+                        }`}
+                      >
+                        Is it available?
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectTemplate('price')}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          templateKey === 'price'
+                            ? 'bg-natural-green text-white border-natural-green shadow-2xs'
+                            : 'bg-natural-cream/40 text-natural-dusty border-natural-border hover:text-natural-text'
+                        }`}
+                      >
+                        Best price?
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectTemplate('today')}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          templateKey === 'today'
+                            ? 'bg-natural-green text-white border-natural-green shadow-2xs'
+                            : 'bg-natural-cream/40 text-natural-dusty border-natural-border hover:text-natural-text'
+                        }`}
+                      >
+                        View today?
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectTemplate('custom')}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          templateKey === 'custom'
+                            ? 'bg-natural-green text-white border-natural-green shadow-2xs'
+                            : 'bg-natural-cream/40 text-natural-dusty border-natural-border hover:text-natural-text'
+                        }`}
+                      >
+                        Custom
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Buyer Contact Fields */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[10px] font-bold text-natural-dusty uppercase tracking-wider mb-1">
+                        Your Name
+                      </label>
+                      <input
+                        type="text"
+                        value={buyerName}
+                        onChange={(e) => setBuyerName(e.target.value)}
+                        placeholder="e.g. Sipho"
+                        className="w-full text-xs border border-natural-border rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-natural-green bg-natural-cream/20 text-natural-text"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-natural-dusty uppercase tracking-wider mb-1">
+                        Your Phone / Email
+                      </label>
+                      <input
+                        type="text"
+                        value={buyerContact}
+                        onChange={(e) => setBuyerContact(e.target.value)}
+                        placeholder="e.g. 082 123 4567"
+                        className="w-full text-xs border border-natural-border rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-natural-green bg-natural-cream/20 text-natural-text"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Inquiry Message Textarea */}
+                  <div className="space-y-1 pt-1">
+                    <label className="block text-[10px] font-extrabold text-natural-dusty uppercase tracking-wider">
+                      Message Body (Editable)
+                    </label>
+                    <textarea
+                      required
+                      rows={4}
+                      value={customInquiryText || getInquiryMessage(templateKey, buyerName)}
+                      onChange={(e) => {
+                        setCustomInquiryText(e.target.value);
+                        if (templateKey !== 'custom') setTemplateKey('custom');
+                      }}
+                      className="w-full text-xs border border-natural-border rounded-xl p-3 outline-none focus:ring-1 focus:ring-natural-green bg-natural-cream/20 text-natural-text leading-relaxed font-sans"
+                    />
+                  </div>
+
+                  {/* Safety Tip Banner */}
+                  <div className="p-3 bg-natural-cream/50 rounded-2xl border border-natural-border flex items-start gap-2.5 text-[10px] text-natural-dusty">
+                    <ShieldCheck className="w-4 h-4 text-natural-green shrink-0 mt-0.5" />
+                    <span>
+                      <strong className="text-natural-text">Safety First:</strong> Meet in safe, public places for transactions. Never send deposit payments electronically before viewing the item.
+                    </span>
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={isSendingChat}
+                      className={`w-full py-3.5 px-4 rounded-xl text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
+                        contactChannel === 'whatsapp'
+                          ? 'bg-emerald-600 hover:bg-emerald-700'
+                          : contactChannel === 'email'
+                          ? 'bg-sky-600 hover:bg-sky-700'
+                          : 'bg-natural-green hover:bg-natural-green-hover'
+                      }`}
+                    >
+                      {contactChannel === 'whatsapp' && (
+                        <>
+                          <MessageCircle className="w-4 h-4" />
+                          <span>Send Inquiry via WhatsApp</span>
+                          <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+                        </>
+                      )}
+                      {contactChannel === 'email' && (
+                        <>
+                          <Mail className="w-4 h-4" />
+                          <span>Send Inquiry via Email</span>
+                          <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+                        </>
+                      )}
+                      {contactChannel === 'chat' && (
+                        <>
+                          <Send className="w-4 h-4" />
+                          <span>{isSendingChat ? 'Sending Message...' : 'Send In-App Secure Message'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+
+            </form>
           </div>
         </div>
       )}

@@ -1,6 +1,7 @@
-import React from 'react';
-import { MapPin, Tag, Eye, MessageSquare, ShieldCheck, Heart, Sparkles, TrendingDown, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { MapPin, Tag, Eye, MessageSquare, ShieldCheck, Heart, Sparkles, TrendingDown, TrendingUp, Navigation, Share2, Check } from 'lucide-react';
 import { Listing } from '../types';
+import { getListingCoords, calculateDistanceKm, formatDistance } from '../utils/location';
 
 interface ListingCardProps {
   key?: string | number;
@@ -8,9 +9,68 @@ interface ListingCardProps {
   onClick: (listing: Listing) => void;
   onToggleSaved?: (id: string, e: React.MouseEvent) => void;
   isSaved?: boolean;
+  userCoords?: { lat: number; lng: number } | null;
 }
 
-export default function ListingCard({ listing, onClick, onToggleSaved, isSaved = false }: ListingCardProps) {
+export default function ListingCard({ listing, onClick, onToggleSaved, isSaved = false, userCoords: propUserCoords }: ListingCardProps) {
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(propUserCoords || null);
+  const [copiedToast, setCopiedToast] = useState(false);
+
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering parent listing click
+    const shareData = {
+      title: listing.title,
+      text: `Check out "${listing.title}" on SA Market Hub for R ${listing.price.toLocaleString('en-ZA')}`,
+      url: window.location.href,
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch {
+        // User canceled or share dismissed
+      }
+    } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setCopiedToast(true);
+        setTimeout(() => setCopiedToast(false), 2000);
+      } catch {
+        // Ignore fallback write errors
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (propUserCoords) {
+      setUserCoords(propUserCoords);
+      return;
+    }
+
+    // Try fetching user location if browser geolocation is supported and granted
+    if (typeof window !== 'undefined' && 'navigator' in window && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setUserCoords({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude
+          });
+        },
+        (err) => {
+          // Geolocation permission denied or failed silently
+        },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+      );
+    }
+  }, [propUserCoords]);
+
+  // Calculate distance from user position if userCoords are present
+  const listingCoords = getListingCoords(listing);
+  let distanceText: string | null = null;
+  if (userCoords && userCoords.lat && userCoords.lng) {
+    const distanceKm = calculateDistanceKm(userCoords.lat, userCoords.lng, listingCoords.lat, listingCoords.lng);
+    distanceText = formatDistance(distanceKm);
+  }
   const getPriceTrend = () => {
     if (!listing.priceHistory || listing.priceHistory.length <= 1) return null;
     const original = listing.priceHistory[0].price;
@@ -80,14 +140,41 @@ export default function ListingCard({ listing, onClick, onToggleSaved, isSaved =
           )}
         </div>
 
-        {/* Saved Listings Toggle */}
-        {onToggleSaved && (
+        {/* Action Buttons: Share & Save */}
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
           <button
-            onClick={(e) => onToggleSaved(listing.id, e)}
-            className="absolute top-3 right-3 p-2 bg-natural-bg/90 hover:bg-natural-bg rounded-full text-red-500 shadow-md transition-all duration-300 hover:scale-110 cursor-pointer z-10"
+            type="button"
+            onClick={handleShare}
+            id={`share-btn-${listing.id}`}
+            className="p-2 bg-natural-bg/90 hover:bg-natural-bg text-natural-text hover:text-natural-green rounded-full shadow-md transition-all duration-300 hover:scale-110 cursor-pointer"
+            title="Share listing URL and title"
           >
-            <Heart className={`w-4 h-4 transition-all ${isSaved ? 'fill-red-500 text-red-500' : 'text-natural-dusty hover:text-red-500'}`} />
+            {copiedToast ? (
+              <Check className="w-4 h-4 text-emerald-600 animate-bounce" />
+            ) : (
+              <Share2 className="w-4 h-4 text-natural-dusty hover:text-natural-green" />
+            )}
           </button>
+
+          {onToggleSaved && (
+            <button
+              type="button"
+              onClick={(e) => onToggleSaved(listing.id, e)}
+              id={`heart-btn-${listing.id}`}
+              className="p-2 bg-natural-bg/90 hover:bg-natural-bg rounded-full text-red-500 shadow-md transition-all duration-300 hover:scale-110 cursor-pointer"
+              title="Save listing"
+            >
+              <Heart className={`w-4 h-4 transition-all ${isSaved ? 'fill-red-500 text-red-500' : 'text-natural-dusty hover:text-red-500'}`} />
+            </button>
+          )}
+        </div>
+
+        {/* Toast alert on link copy */}
+        {copiedToast && (
+          <div className="absolute top-12 right-3 z-20 bg-black/85 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-lg shadow-xl animate-fade-in backdrop-blur-xs flex items-center gap-1">
+            <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+            <span>Link Copied!</span>
+          </div>
         )}
 
         {/* Pricing tag */}
@@ -134,10 +221,18 @@ export default function ListingCard({ listing, onClick, onToggleSaved, isSaved =
         </div>
 
         <div className="space-y-2.5 pt-2 border-t border-natural-border">
-          {/* Location details */}
-          <div className="flex items-center gap-1.5 text-natural-muted text-[11px] font-medium">
-            <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
-            <span className="line-clamp-1">{listing.suburb}, {listing.city} ({listing.province})</span>
+          {/* Location details with calculated user distance */}
+          <div className="flex items-center justify-between gap-1 text-[11px] font-medium">
+            <div className="flex items-center gap-1.5 text-natural-muted truncate">
+              <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
+              <span className="truncate">{listing.suburb ? `${listing.suburb}, ` : ''}{listing.city} ({listing.province})</span>
+            </div>
+            {distanceText && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-natural-green bg-natural-green/10 border border-natural-green/20 px-2 py-0.5 rounded-full shrink-0 shadow-2xs" title="Distance from your current location">
+                <Navigation className="w-2.5 h-2.5 shrink-0" />
+                <span>{distanceText}</span>
+              </span>
+            )}
           </div>
 
           {/* User badge and views */}

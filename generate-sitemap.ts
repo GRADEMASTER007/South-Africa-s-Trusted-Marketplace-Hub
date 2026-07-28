@@ -61,7 +61,8 @@ async function generateSitemap() {
   // 2. Fetch Dynamic Listings from Firestore REST API
   try {
     const customDatabaseId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
-    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${(firebaseConfig as any).projectId}/databases/${customDatabaseId}/documents/listings?pageSize=300`;
+    const apiKey = (firebaseConfig as any).apiKey;
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${(firebaseConfig as any).projectId}/databases/${customDatabaseId}/documents/listings?pageSize=300${apiKey ? `&key=${apiKey}` : ''}`;
     const response = await fetch(firestoreUrl);
     
     if (response.ok) {

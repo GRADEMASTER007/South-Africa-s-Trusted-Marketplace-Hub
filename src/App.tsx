@@ -3,20 +3,21 @@ import {
   MapPin, Tag, Search, Car, Home, Wrench, Briefcase, Compass, 
   ShoppingBag, PlusCircle, User, LogIn, LogOut, Menu, X, 
   Sparkles, AlertTriangle, ShieldCheck, Star, Heart, Map, 
-  Phone, HelpCircle, Building2, BookOpen, Layers
+  Phone, HelpCircle, Building2, BookOpen, Layers, LayoutGrid
 } from 'lucide-react';
 
 import { Listing, UserProfile, BusinessProfile } from './types';
 import { SOUTH_AFRICAN_PROVINCES, CLASSIFIED_CATEGORIES, PRICING_PACKAGES } from './data/southAfricaData';
 import { auth, db, isFirebaseAvailable, googleProvider } from './firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, signInWithPopup } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, setDoc, updateDoc, query, where } from 'firebase/firestore';
 
 // Component imports
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import ListingCard from './components/ListingCard';
 import ListingDetail from './components/ListingDetail';
+import ListingMapView from './components/ListingMapView';
 import CreateListing from './components/CreateListing';
 import BusinessProfilePage from './components/BusinessProfilePage';
 import UserDashboard from './components/UserDashboard';
@@ -26,6 +27,7 @@ import AiSearchChatbot from './components/AiSearchChatbot';
 import ReviewsSection from './components/ReviewsSection';
 import PwaInstallBanner from './components/PwaInstallBanner';
 import Helmet from './components/Helmet';
+import PriceDistributionChart from './components/PriceDistributionChart';
 
 // INITIAL PRE-POPULATED REALISTIC SOUTH AFRICAN CLASSIFIED ADS
 const INITIAL_LISTINGS: Listing[] = [
@@ -214,7 +216,7 @@ export default function App() {
 
   // Classified Ads State
   const [listings, setListings] = useState<Listing[]>(INITIAL_LISTINGS);
-  const [savedListingIds, setSavedListingIds] = useState<string[]>([]);
+  const [bookmarkedListingIds, setBookmarkedListingIds] = useState<string[]>([]);
 
   // Search/Filter State
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -222,7 +224,29 @@ export default function App() {
   const [selectedCity, setSelectedCity] = useState<string>('All Cities');
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('All Subcategories');
+  const [priceMin, setPriceMin] = useState('');
   const [priceMax, setPriceMax] = useState('');
+  const [homeViewMode, setHomeViewMode] = useState<'grid' | 'map'>('grid');
+
+  // User Geolocation State
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'navigator' in window && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserCoords({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (error) => {
+          // Geolocation standard fallback
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+      );
+    }
+  }, []);
 
   // Active cities list for the selected province
   const availableCities = selectedProvince === 'All Provinces' 
@@ -272,10 +296,21 @@ export default function App() {
           }
         }
         setCurrentUser(profile);
-        setSavedListingIds(JSON.parse(localStorage.getItem(`samarket_saved_${user.uid}`) || '[]'));
+        if (isFirebaseAvailable && db) {
+          try {
+            const bQ = query(collection(db, "bookmarks"), where("userId", "==", user.uid));
+            const bSnap = await getDocs(bQ);
+            setBookmarkedListingIds(bSnap.docs.map(d => d.data().listingId as string));
+          } catch (e) {
+            console.warn("Could not fetch bookmarks from Firestore", e);
+            setBookmarkedListingIds(JSON.parse(localStorage.getItem(`samarket_bookmarks_${user.uid}`) || '[]'));
+          }
+        } else {
+          setBookmarkedListingIds(JSON.parse(localStorage.getItem(`samarket_bookmarks_${user.uid}`) || '[]'));
+        }
       } else {
         setCurrentUser(null);
-        setSavedListingIds([]);
+        setBookmarkedListingIds([]);
       }
     });
 
@@ -409,6 +444,7 @@ export default function App() {
     if (filters.category) setSelectedCategory(filters.category);
     if (filters.subcategory) setSelectedSubcategory(filters.subcategory);
     if (filters.query) setSearchKeyword(filters.query);
+    if (filters.minPrice) setPriceMin(filters.minPrice.toString());
     if (filters.maxPrice) setPriceMax(filters.maxPrice.toString());
     setCurrentView('home');
   };
@@ -429,6 +465,9 @@ export default function App() {
     if (selectedSubcategory !== 'All Subcategories' && l.subcategory !== selectedSubcategory) {
       matches = false;
     }
+    if (priceMin && l.price < parseFloat(priceMin)) {
+      matches = false;
+    }
     if (priceMax && l.price > parseFloat(priceMax)) {
       matches = false;
     }
@@ -445,22 +484,56 @@ export default function App() {
     return matches;
   });
 
-  const handleToggleSaved = (id: string, e: React.MouseEvent) => {
+  const handleToggleBookmark = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentUser) {
       setShowAuthModal(true);
       return;
     }
-    const savedKey = `samarket_saved_${currentUser.uid}`;
-    const saved = JSON.parse(localStorage.getItem(savedKey) || '[]');
-    let updated;
-    if (saved.includes(id)) {
-      updated = saved.filter((sid: string) => sid !== id);
-    } else {
-      updated = [...saved, id];
+    try {
+      if (isFirebaseAvailable && db) {
+        const { collection, query, where, getDocs, addDoc, deleteDoc } = await import('firebase/firestore');
+        const q = query(
+          collection(db, "bookmarks"),
+          where("userId", "==", currentUser.uid),
+          where("listingId", "==", id)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const deletePromises = snap.docs.map(docSnap => deleteDoc(docSnap.ref));
+          await Promise.all(deletePromises);
+          setBookmarkedListingIds(prev => prev.filter(bid => bid !== id));
+        } else {
+          const listing = listings.find(l => l.id === id);
+          if (listing) {
+            await addDoc(collection(db, "bookmarks"), {
+              userId: currentUser.uid,
+              listingId: id,
+              listingTitle: listing.title,
+              listingPrice: listing.price,
+              initialPrice: listing.price,
+              createdAt: new Date().toISOString()
+            });
+            setBookmarkedListingIds(prev => [...prev, id]);
+          }
+        }
+      }
+      
+      const localKey = `samarket_bookmarks_${currentUser.uid}`;
+      const bookmarked = JSON.parse(localStorage.getItem(localKey) || '[]');
+      let updated;
+      if (bookmarked.includes(id)) {
+        updated = bookmarked.filter((sid: string) => sid !== id);
+      } else {
+        updated = [...bookmarked, id];
+      }
+      localStorage.setItem(localKey, JSON.stringify(updated));
+      if (!isFirebaseAvailable || !db) {
+        setBookmarkedListingIds(updated);
+      }
+    } catch (err) {
+      console.error("Error toggling bookmark:", err);
     }
-    localStorage.setItem(savedKey, JSON.stringify(updated));
-    setSavedListingIds(updated);
   };
 
   const handleSelectListing = (listing: Listing) => {
@@ -476,6 +549,60 @@ export default function App() {
       window.history.pushState({}, '', url.toString());
     } catch (e) {
       console.warn("Could not update address bar URL for sharing", e);
+    }
+  };
+
+  const notifyStatusChange = async (listingId: string, listingTitle: string, newStatus: string) => {
+    let statusMsg = "";
+    if (newStatus === "active") statusMsg = "is now active/renewed!";
+    else if (newStatus === "sold") statusMsg = "has just been marked as SOLD!";
+    else if (newStatus === "expired") statusMsg = "has expired.";
+    else return; // Only notify on specific status changes
+
+    try {
+      if (isFirebaseAvailable && db) {
+        const { collection, query, where, getDocs, addDoc } = await import('firebase/firestore');
+        const q = query(collection(db, "bookmarks"), where("listingId", "==", listingId));
+        const snap = await getDocs(q);
+        const notifyPromises = snap.docs.map(docSnap => {
+          const bookmarkData = docSnap.data();
+          return addDoc(collection(db, "notifications"), {
+            userId: bookmarkData.userId,
+            title: `🔄 Status Update: ${newStatus.toUpperCase()}`,
+            message: `A listing on your Watchlist ("${listingTitle}") ${statusMsg}`,
+            type: "system",
+            read: false,
+            listingId: listingId,
+            createdAt: new Date().toISOString()
+          });
+        });
+        await Promise.all(notifyPromises);
+      }
+      
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("samarket_bookmarks_")) {
+          const followerUserId = key.replace("samarket_bookmarks_", "");
+          const bookmarkedIds = JSON.parse(localStorage.getItem(key) || "[]");
+          if (bookmarkedIds.includes(listingId)) {
+            const localNotifsKey = "samarket_notifications";
+            const currentNotifs = JSON.parse(localStorage.getItem(localNotifsKey) || "[]");
+            currentNotifs.push({
+              id: `notif_stat_${Math.random().toString(36).substring(2, 9)}`,
+              userId: followerUserId,
+              title: `🔄 Status Update: ${newStatus.toUpperCase()}`,
+              message: `A listing on your Watchlist ("${listingTitle}") ${statusMsg}`,
+              type: "system",
+              read: false,
+              listingId: listingId,
+              createdAt: new Date().toISOString()
+            });
+            localStorage.setItem(localNotifsKey, JSON.stringify(currentNotifs));
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error sending status notifications", e);
     }
   };
 
@@ -502,7 +629,34 @@ export default function App() {
         localStorage.setItem('samarket_listings', JSON.stringify(updated));
       }
       syncListings();
+      await notifyStatusChange(listing.id, listing.title, "active");
       alert(`Success! Classified ad "${listing.title}" renewed for another 30 days.`);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleMarkSoldListing = async (listing: Listing) => {
+    try {
+      if (isFirebaseAvailable && db) {
+        const listingDocRef = doc(db, "listings", listing.id);
+        await updateDoc(listingDocRef, {
+          status: 'sold',
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        const local = JSON.parse(localStorage.getItem('samarket_listings') || '[]');
+        const updated = local.map((l: any) => {
+          if (l.id === listing.id) {
+            return { ...l, status: 'sold' };
+          }
+          return l;
+        });
+        localStorage.setItem('samarket_listings', JSON.stringify(updated));
+      }
+      syncListings();
+      await notifyStatusChange(listing.id, listing.title, "sold");
+      alert(`Congrats! Your ad "${listing.title}" has been marked as sold.`);
     } catch (err) {
       console.error(err);
     }
@@ -567,15 +721,15 @@ export default function App() {
         if (isPriceReduced) {
           try {
             const { collection, query, where, getDocs, addDoc } = await import('firebase/firestore');
-            const q = query(collection(db, "follows"), where("listingId", "==", id));
+            const q = query(collection(db, "bookmarks"), where("listingId", "==", id));
             const snap = await getDocs(q);
             const notifyPromises = snap.docs.map(docSnap => {
-              const followData = docSnap.data();
-              const followerUserId = followData.userId;
+              const bookmarkData = docSnap.data();
+              const followerUserId = bookmarkData.userId;
               return addDoc(collection(db, "notifications"), {
                 userId: followerUserId,
                 title: "📉 Price Reduced! Lekker Deal Alert!",
-                message: `Lekker deal! The price of the listing "${listingToUpdate.title}" that you followed has dropped from R ${oldPrice.toLocaleString('en-ZA')} to R ${newPrice.toLocaleString('en-ZA')}!`,
+                message: `Lekker deal! The price of the listing "${listingToUpdate.title}" on your Watchlist has dropped from R ${oldPrice.toLocaleString('en-ZA')} to R ${newPrice.toLocaleString('en-ZA')}!`,
                 type: "system",
                 read: false,
                 listingId: id,
@@ -598,17 +752,17 @@ export default function App() {
       try {
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && key.startsWith("samarket_follows_")) {
-            const followerUserId = key.replace("samarket_follows_", "");
-            const followedIds = JSON.parse(localStorage.getItem(key) || "[]");
-            if (followedIds.includes(id)) {
+          if (key && key.startsWith("samarket_bookmarks_")) {
+            const followerUserId = key.replace("samarket_bookmarks_", "");
+            const bookmarkedIds = JSON.parse(localStorage.getItem(key) || "[]");
+            if (bookmarkedIds.includes(id)) {
               const localNotifsKey = "samarket_notifications";
               const currentNotifs = JSON.parse(localStorage.getItem(localNotifsKey) || "[]");
               currentNotifs.push({
                 id: `notif_drop_${Math.random().toString(36).substring(2, 9)}`,
                 userId: followerUserId,
                 title: "📉 Price Reduced! Lekker Deal Alert!",
-                message: `Lekker deal! The price of the listing "${listingToUpdate.title}" that you followed has dropped from R ${oldPrice.toLocaleString('en-ZA')} to R ${newPrice.toLocaleString('en-ZA')}!`,
+                message: `Lekker deal! The price of the listing "${listingToUpdate.title}" on your Watchlist has dropped from R ${oldPrice.toLocaleString('en-ZA')} to R ${newPrice.toLocaleString('en-ZA')}!`,
                 type: "system",
                 read: false,
                 listingId: id,
@@ -756,6 +910,8 @@ export default function App() {
               setSelectedCategory={(c) => { setSelectedCategory(c); setSelectedSubcategory('All Subcategories'); }}
               selectedSubcategory={selectedSubcategory}
               setSelectedSubcategory={setSelectedSubcategory}
+              priceMin={priceMin}
+              setPriceMin={setPriceMin}
               priceMax={priceMax}
               setPriceMax={setPriceMax}
               availableCities={availableCities}
@@ -765,16 +921,56 @@ export default function App() {
 
             {/* Ads listings list */}
             <div className="max-w-6xl mx-auto px-4 space-y-6">
-              <div className="flex justify-between items-center border-b border-natural-border pb-2">
-                <h3 className="text-base font-serif font-black text-natural-text uppercase tracking-wide">
-                  Browse Classifieds ({filteredListings.length})
-                </h3>
-                {selectedCategory !== 'All Categories' && (
-                  <span className="text-xs text-natural-green font-bold bg-natural-cream px-2.5 py-1 rounded-lg border border-natural-border">
-                    Category: {selectedCategory}
-                  </span>
-                )}
+              <div className="flex flex-wrap justify-between items-center border-b border-natural-border pb-3 gap-3">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-base font-serif font-black text-natural-text uppercase tracking-wide">
+                    Browse Classifieds ({filteredListings.length})
+                  </h3>
+                  {selectedCategory !== 'All Categories' && (
+                    <span className="text-xs text-natural-green font-bold bg-natural-cream px-2.5 py-1 rounded-lg border border-natural-border">
+                      Category: {selectedCategory}
+                    </span>
+                  )}
+                </div>
+
+                {/* View Mode Toggle Switch (Grid vs Google Maps) */}
+                <div className="bg-white border border-natural-border p-1 rounded-2xl flex items-center gap-1 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setHomeViewMode('grid')}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                      homeViewMode === 'grid'
+                        ? 'bg-natural-green text-white shadow-xs'
+                        : 'text-natural-dusty hover:text-natural-text'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>Grid View</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setHomeViewMode('map')}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                      homeViewMode === 'map'
+                        ? 'bg-natural-green text-white shadow-xs'
+                        : 'text-natural-dusty hover:text-natural-text'
+                    }`}
+                  >
+                    <Map className="w-3.5 h-3.5" />
+                    <span>Google Maps View</span>
+                  </button>
+                </div>
               </div>
+
+              {/* Price distribution bar chart */}
+              <PriceDistributionChart
+                listings={filteredListings}
+                priceMin={priceMin}
+                setPriceMin={setPriceMin}
+                priceMax={priceMax}
+                setPriceMax={setPriceMax}
+              />
 
               {filteredListings.length === 0 ? (
                 <div className="text-center py-16 bg-natural-cream/30 border border-natural-border rounded-3xl p-6 space-y-3.5 shadow-xs">
@@ -787,6 +983,8 @@ export default function App() {
                       setSelectedProvince('All Provinces');
                       setSelectedCity('All Cities');
                       setSelectedCategory('All Categories');
+                      setSelectedSubcategory('All Subcategories');
+                      setPriceMin('');
                       setPriceMax('');
                     }}
                     className="bg-natural-green hover:bg-natural-green-hover text-white font-bold text-xs py-2 px-4.5 rounded-xl transition-all cursor-pointer shadow-sm"
@@ -794,6 +992,11 @@ export default function App() {
                     Clear All Filters
                   </button>
                 </div>
+              ) : homeViewMode === 'map' ? (
+                <ListingMapView 
+                  listings={filteredListings} 
+                  onSelectListing={handleSelectListing} 
+                />
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                   {/* Prioritize Featured Listings first */}
@@ -804,8 +1007,9 @@ export default function App() {
                         key={listing.id} 
                         listing={listing} 
                         onClick={handleSelectListing}
-                        onToggleSaved={handleToggleSaved}
-                        isSaved={savedListingIds.includes(listing.id)}
+                        onToggleSaved={handleToggleBookmark}
+                        isSaved={bookmarkedListingIds.includes(listing.id)}
+                        userCoords={userCoords}
                       />
                     ))
                   }
@@ -835,15 +1039,39 @@ export default function App() {
           />
         )}
 
-        {currentView === 'create' && currentUser && (
-          <CreateListing
-            currentUser={currentUser}
-            onAdPublished={() => {
-              alert("Lekker! Your classified advertisement is now live on SA Market Hub!");
-              setCurrentView('home');
-            }}
-            onCancel={() => setCurrentView('home')}
-          />
+        {currentView === 'create' && (
+          currentUser ? (
+            <CreateListing
+              currentUser={currentUser}
+              onAdPublished={() => {
+                alert("Lekker! Your classified advertisement is now live on SA Market Hub!");
+                setCurrentView('home');
+              }}
+              onCancel={() => setCurrentView('home')}
+            />
+          ) : (
+            <div className="max-w-md mx-auto my-12 p-8 text-center space-y-4 bg-natural-cream/30 border border-natural-border rounded-3xl shadow-sm">
+              <div className="p-3 bg-natural-green/10 text-natural-green rounded-2xl w-12 h-12 mx-auto flex items-center justify-center">
+                <PlusCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-serif font-black text-natural-text">Sign In Required</h3>
+              <p className="text-xs text-natural-muted leading-relaxed">Please sign in or register a free account to post and manage your classified advertisements across South Africa.</p>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="bg-natural-green hover:bg-natural-green-hover text-white font-bold text-xs py-2.5 px-6 rounded-xl shadow-sm transition-colors cursor-pointer"
+                >
+                  Sign In / Register
+                </button>
+                <button
+                  onClick={() => setCurrentView('home')}
+                  className="border border-natural-border text-natural-dusty hover:text-natural-text font-bold text-xs py-2.5 px-4 rounded-xl transition-colors cursor-pointer"
+                >
+                  Return to Home
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {currentView === 'directory' && (
@@ -860,10 +1088,9 @@ export default function App() {
           <UserDashboard
             currentUser={currentUser}
             listings={listings}
-            savedListingIds={savedListingIds}
-            onToggleSaved={handleToggleSaved}
             onSelectListing={handleSelectListing}
             onRenewListing={handleRenewListing}
+            onMarkSoldListing={handleMarkSoldListing}
             onUpgradeListing={(listing) => {
               // Upgrade triggers boost options
               setSelectedListing(listing);

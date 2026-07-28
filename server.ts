@@ -14,7 +14,7 @@ import firebaseConfig from "./firebase-applet-config.json" assert { type: "json"
 dotenv.config();
 
 // Initialize Server-Side Firebase Client to support webhooks and automated state updates
-const customDatabaseId = firebaseConfig.firestoreDatabaseId || "(default)";
+const customDatabaseId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
 
 let firebaseApp;
 let firestoreDb: any = null;

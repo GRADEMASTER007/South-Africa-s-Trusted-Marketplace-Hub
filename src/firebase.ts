@@ -3,7 +3,7 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-const customDatabaseId = firebaseConfig.firestoreDatabaseId || "(default)";
+const customDatabaseId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
 
 let app;
 let auth: any = null;

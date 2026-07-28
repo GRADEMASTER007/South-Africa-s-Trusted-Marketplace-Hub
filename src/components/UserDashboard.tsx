@@ -9,25 +9,23 @@ import ListingCard from './ListingCard';
 interface UserDashboardProps {
   currentUser: any;
   listings: Listing[];
-  savedListingIds: string[];
-  onToggleSaved?: (id: string, e: React.MouseEvent) => void;
   onSelectListing: (listing: Listing) => void;
   onRenewListing: (listing: Listing) => void;
   onUpgradeListing: (listing: Listing) => void;
   onDeleteListing: (id: string) => void;
   onUpdatePrice?: (id: string, newPrice: number) => void;
+  onMarkSoldListing?: (listing: Listing) => void;
 }
 
 export default function UserDashboard({
   currentUser,
   listings,
-  savedListingIds,
-  onToggleSaved,
   onSelectListing,
   onRenewListing,
   onUpgradeListing,
   onDeleteListing,
-  onUpdatePrice
+  onUpdatePrice,
+  onMarkSoldListing
 }: UserDashboardProps) {
   const [activeTab, setActiveTab] = useState<'listings' | 'saved' | 'messages' | 'payments' | 'notifications'>('listings');
   const [subTab, setSubTab] = useState<'active' | 'expired' | 'drafts'>('active');
@@ -43,8 +41,7 @@ export default function UserDashboard({
   const [editingPriceListingId, setEditingPriceListingId] = useState<string | null>(null);
   const [newPriceValue, setNewPriceValue] = useState<string>('');
 
-  const [savedSubTab, setSavedSubTab] = useState<'saved' | 'followed'>('saved');
-  const [followedListingIds, setFollowedListingIds] = useState<string[]>([]);
+  const [bookmarkedListingIds, setBookmarkedListingIds] = useState<string[]>([]);
 
   // Filter listings owned by current user
   const userListings = listings.filter(l => l.userId === currentUser.uid);
@@ -52,9 +49,8 @@ export default function UserDashboard({
   const expiredListings = userListings.filter(l => l.status === 'expired');
   const draftListings = userListings.filter(l => l.status === 'draft');
 
-  // Derive saved ads directly from state prop to stay updated in real time
-  const savedAds = listings.filter(l => savedListingIds.includes(l.id));
-  const followedAds = listings.filter(l => followedListingIds.includes(l.id));
+  // Derive bookmarked ads directly from state
+  const bookmarkedAds = listings.filter(l => bookmarkedListingIds.includes(l.id));
 
   const loadData = async () => {
     setIsLoading(true);
@@ -90,10 +86,10 @@ export default function UserDashboard({
         
         setChats([...chatList, ...chatList2]);
 
-        // Fetch Follows
-        const fQ = query(collection(db, "follows"), where("userId", "==", currentUser.uid));
+        // Fetch Bookmarks
+        const fQ = query(collection(db, "bookmarks"), where("userId", "==", currentUser.uid));
         const fSnap = await getDocs(fQ);
-        setFollowedListingIds(fSnap.docs.map(doc => doc.data().listingId as string));
+        setBookmarkedListingIds(fSnap.docs.map(doc => doc.data().listingId as string));
       } else {
         // Fallback Local Storage
         const localPayments = JSON.parse(localStorage.getItem('samarket_payments') || '[]')
@@ -109,8 +105,8 @@ export default function UserDashboard({
           .filter((c: any) => c.buyerId === currentUser.uid || c.sellerId === currentUser.uid);
         setChats(localChats);
 
-        const localFollowed = JSON.parse(localStorage.getItem(`samarket_follows_${currentUser.uid}`) || '[]');
-        setFollowedListingIds(localFollowed);
+        const localBookmarks = JSON.parse(localStorage.getItem(`samarket_bookmarks_${currentUser.uid}`) || '[]');
+        setBookmarkedListingIds(localBookmarks);
       }
     } catch (error) {
       console.error(error);
@@ -166,12 +162,12 @@ export default function UserDashboard({
     }
   };
 
-  const handleUnfollow = async (listingId: string, e: React.MouseEvent) => {
+  const handleRemoveBookmark = async (listingId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       if (isFirebaseAvailable && db) {
         const q = query(
-          collection(db, "follows"),
+          collection(db, "bookmarks"),
           where("userId", "==", currentUser.uid),
           where("listingId", "==", listingId)
         );
@@ -180,14 +176,14 @@ export default function UserDashboard({
         await Promise.all(deletePromises);
       }
       
-      const localKey = `samarket_follows_${currentUser.uid}`;
-      const followed = JSON.parse(localStorage.getItem(localKey) || '[]');
-      const filtered = followed.filter((id: string) => id !== listingId);
+      const localKey = `samarket_bookmarks_${currentUser.uid}`;
+      const bookmarked = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const filtered = bookmarked.filter((id: string) => id !== listingId);
       localStorage.setItem(localKey, JSON.stringify(filtered));
       
-      setFollowedListingIds(filtered);
+      setBookmarkedListingIds(filtered);
     } catch (err) {
-      console.error("Error unfollowing listing:", err);
+      console.error("Error removing bookmark:", err);
     }
   };
 
@@ -374,6 +370,16 @@ export default function UserDashboard({
                               Edit Price
                             </button>
                             <button
+                              onClick={() => {
+                                if (onMarkSoldListing) {
+                                  onMarkSoldListing(l);
+                                }
+                              }}
+                              className="bg-natural-text text-white hover:bg-natural-text/80 font-bold text-[10px] py-1 px-2.5 rounded-lg shadow-sm cursor-pointer"
+                            >
+                              Mark Sold
+                            </button>
+                            <button
                               onClick={() => onUpgradeListing(l)}
                               className="bg-natural-amber hover:opacity-90 text-white font-extrabold text-[10px] py-1 px-2.5 rounded-lg flex items-center gap-0.5 shadow-sm cursor-pointer"
                             >
@@ -489,50 +495,52 @@ export default function UserDashboard({
           {/* SAVED LISTINGS */}
           {activeTab === 'saved' && (
             <div className="space-y-4">
-              <div className="flex gap-2 border-b border-natural-border pb-2">
-                <button
-                  onClick={() => setSavedSubTab('saved')}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg cursor-pointer transition-colors ${
-                    savedSubTab === 'saved' 
-                      ? 'bg-natural-green/10 text-natural-green' 
-                      : 'text-natural-dusty hover:text-natural-text'
-                  }`}
-                >
-                  Saved Ads ({savedAds.length})
-                </button>
-                <button
-                  onClick={() => setSavedSubTab('followed')}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg cursor-pointer transition-colors ${
-                    savedSubTab === 'followed' 
-                      ? 'bg-natural-green/10 text-natural-green' 
-                      : 'text-natural-dusty hover:text-natural-text'
-                  }`}
-                >
-                  🔔 Price Watches ({followedAds.length})
-                </button>
+              <div className="flex justify-between items-center bg-natural-cream/10 p-4 rounded-2xl border border-natural-border">
+                <div>
+                  <h4 className="font-serif font-black text-sm text-natural-text">Watchlist & Bookmarks</h4>
+                  <p className="text-[11px] text-natural-muted">Listings you save will appear here. You'll get notified if they drop in price or change status.</p>
+                </div>
               </div>
 
-              {savedSubTab === 'saved' && (
-                savedAds.length === 0 ? (
-                  <div className="text-center py-12 bg-natural-bg border border-natural-border rounded-3xl p-6 text-xs text-natural-muted font-medium">
-                    You haven't saved any listings yet. Browse local ads to find deals!
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {savedAds.map(l => (
+              {bookmarkedAds.length === 0 ? (
+                <div className="text-center py-12 bg-natural-bg border border-natural-border rounded-3xl p-6 text-xs text-natural-muted font-medium">
+                  You aren't watching any listings yet. Click "Watchlist & Bookmark" on any listing to get instant alerts!
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {bookmarkedAds.map(l => {
+                    const originalPrice = l.priceHistory?.[0]?.price || l.price;
+                    const priceDropped = l.price < originalPrice;
+                    const pctDiff = originalPrice > 0 ? Math.round(((originalPrice - l.price) / originalPrice) * 100) : 0;
+
+                    return (
                       <div key={l.id} className="bg-natural-bg border border-natural-border rounded-2xl overflow-hidden flex flex-col group transition-all duration-300 hover:border-natural-green/40 shadow-xs relative">
-                        <div className="relative aspect-video w-full bg-natural-cream overflow-hidden">
+                        <div className="relative aspect-video w-full bg-natural-cream overflow-hidden cursor-pointer" onClick={() => onSelectListing(l)}>
                           <img
                             src={l.images?.[0] || 'https://images.unsplash.com/photo-1582407947304-fd86f028f716?w=600&auto=format&fit=crop&q=60'}
                             alt={l.title}
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                           />
-                          <div className="absolute top-3 left-3 bg-black/70 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md backdrop-blur-xs">
-                            {l.condition}
+                          <div className="absolute top-3 left-3 flex gap-2">
+                            <div className="bg-black/70 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md backdrop-blur-xs">
+                              {l.condition}
+                            </div>
+                            {l.status !== 'active' && (
+                              <div className="bg-red-500 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md backdrop-blur-xs shadow-md">
+                                {l.status}
+                              </div>
+                            )}
                           </div>
-                          <div className="absolute bottom-3 left-3 bg-natural-green text-white px-2.5 py-1 rounded-lg font-black text-xs shadow-md border border-natural-green/20">
-                            R {l.price.toLocaleString('en-ZA')}
+                          <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                            <div className="bg-natural-green text-white px-2.5 py-1 rounded-lg font-black text-xs shadow-md border border-natural-green/20">
+                              R {l.price.toLocaleString('en-ZA')}
+                            </div>
+                            {priceDropped && (
+                              <div className="bg-green-100 text-green-800 text-[10px] font-bold px-1.5 py-0.5 rounded-lg flex items-center gap-0.5 shadow-md">
+                                📉 {pctDiff}% off!
+                              </div>
+                            )}
                           </div>
                         </div>
                         
@@ -541,20 +549,15 @@ export default function UserDashboard({
                             <span className="text-[10px] font-extrabold text-natural-green uppercase tracking-wider">
                               {l.category} &bull; {l.subcategory}
                             </span>
-                            <h4 className="font-serif font-black text-natural-text text-sm line-clamp-1">
+                            <h4 className="font-serif font-black text-natural-text text-sm line-clamp-1 hover:underline cursor-pointer" onClick={() => onSelectListing(l)}>
                               {l.title}
                             </h4>
-                            <p className="text-xs text-natural-muted line-clamp-2 leading-relaxed">
-                              {l.description}
-                            </p>
+                            <p className="text-[10px] text-natural-muted font-mono">{l.suburb}, {l.city}</p>
                           </div>
 
                           <div className="pt-3 border-t border-natural-border flex gap-2 items-center justify-between">
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (onToggleSaved) onToggleSaved(l.id, e);
-                              }}
+                              onClick={(e) => handleRemoveBookmark(l.id, e)}
                               className="flex items-center gap-1 text-[10px] font-extrabold uppercase text-red-500 hover:text-red-600 hover:bg-red-50/50 border border-red-100 hover:border-red-200 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors"
                               title="Remove bookmark"
                             >
@@ -571,56 +574,9 @@ export default function UserDashboard({
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )
-              )}
-
-              {savedSubTab === 'followed' && (
-                followedAds.length === 0 ? (
-                  <div className="text-center py-12 bg-natural-bg border border-natural-border rounded-3xl p-6 text-xs text-natural-muted font-medium">
-                    You are not watching any listings for price drops yet. Click "Follow Price" on any listing detail view to get instant alerts!
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {followedAds.map(l => {
-                      const originalPrice = l.priceHistory?.[0]?.price || l.price;
-                      const priceDropped = l.price < originalPrice;
-                      const pctDiff = originalPrice > 0 ? Math.round(((originalPrice - l.price) / originalPrice) * 100) : 0;
-
-                      return (
-                        <div key={l.id} className="bg-natural-bg border border-natural-border rounded-2xl p-4 flex gap-4 relative items-center justify-between shadow-xs hover:border-natural-green/40 transition-all duration-300">
-                          <div className="flex gap-4 items-center min-w-0 cursor-pointer" onClick={() => onSelectListing(l)}>
-                            <img src={l.images?.[0]} alt="" className="w-14 h-14 object-cover rounded-xl bg-natural-cream/20 shrink-0 border border-natural-border" />
-                            <div className="space-y-0.5 min-w-0">
-                              <h4 className="font-serif font-bold text-natural-text text-xs line-clamp-1 hover:underline">{l.title}</h4>
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs font-black text-natural-green">R {l.price.toLocaleString('en-ZA')}</span>
-                                {priceDropped && (
-                                  <>
-                                    <span className="text-[10px] text-natural-dusty line-through font-medium">R {originalPrice.toLocaleString('en-ZA')}</span>
-                                    <span className="bg-green-100 text-green-800 text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5 animate-pulse">
-                                      📉 {pctDiff}% off!
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-natural-muted font-mono">{l.suburb}, {l.city}</p>
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-2 shrink-0 items-end">
-                            <button
-                              onClick={(e) => handleUnfollow(l.id, e)}
-                              className="text-[10px] font-bold text-red-500 hover:text-red-600 border border-red-200 hover:bg-red-50/30 px-2.5 py-1 rounded-lg cursor-pointer"
-                            >
-                              Unwatch
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )
+                    );
+                  })}
+                </div>
               )}
             </div>
           )}

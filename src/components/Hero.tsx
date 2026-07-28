@@ -1,6 +1,7 @@
-import React from 'react';
-import { Search, MapPin, Tag, Landmark, Sparkles, Car, Home, Wrench, Briefcase, Compass, ShoppingBag } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, MapPin, Tag, Landmark, Sparkles, Car, Home, Wrench, Briefcase, Compass, ShoppingBag, SlidersHorizontal, Clock, X } from 'lucide-react';
 import { SOUTH_AFRICAN_PROVINCES, CLASSIFIED_CATEGORIES } from '../data/southAfricaData';
+import DualRangeSlider from './DualRangeSlider';
 
 interface HeroProps {
   searchKeyword: string;
@@ -13,6 +14,8 @@ interface HeroProps {
   setSelectedCategory: (val: string) => void;
   selectedSubcategory: string;
   setSelectedSubcategory: (val: string) => void;
+  priceMin: string;
+  setPriceMin: (val: string) => void;
   priceMax: string;
   setPriceMax: (val: string) => void;
   availableCities: string[];
@@ -31,12 +34,59 @@ export default function Hero({
   setSelectedCategory,
   selectedSubcategory,
   setSelectedSubcategory,
+  priceMin,
+  setPriceMin,
   priceMax,
   setPriceMax,
   availableCities,
   availableSubcategories,
   onPostAd
 }: HeroProps) {
+
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('recent_classified_searches');
+      return saved ? JSON.parse(saved) : ['Toyota Hilux', 'Campground', 'Farm Equipment'];
+    } catch {
+      return ['Toyota Hilux', 'Campground', 'Farm Equipment'];
+    }
+  });
+
+  const addRecentSearch = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed || trimmed.length < 2) return;
+    setRecentSearches(prev => {
+      const filtered = prev.filter(item => item.toLowerCase() !== trimmed.toLowerCase());
+      const updated = [trimmed, ...filtered].slice(0, 3);
+      try {
+        localStorage.setItem('recent_classified_searches', JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      return updated;
+    });
+  };
+
+  const removeRecentSearch = (e: React.MouseEvent, termToRemove: string) => {
+    e.stopPropagation();
+    setRecentSearches(prev => {
+      const updated = prev.filter(item => item !== termToRemove);
+      try {
+        localStorage.setItem('recent_classified_searches', JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    if (!searchKeyword || searchKeyword.trim().length < 2) return;
+    const timer = setTimeout(() => {
+      addRecentSearch(searchKeyword);
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [searchKeyword]);
 
   const getCategoryIcon = (iconName: string) => {
     switch (iconName) {
@@ -87,6 +137,12 @@ export default function Hero({
                 type="text"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
+                onBlur={(e) => addRecentSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    addRecentSearch(searchKeyword);
+                  }
+                }}
                 placeholder="What are you searching for today, boet?"
                 className="w-full text-xs border border-natural-border rounded-xl pl-9 pr-3 py-3 outline-none focus:ring-1 focus:ring-natural-green focus:border-natural-green font-medium bg-natural-cream/30 text-natural-text"
               />
@@ -125,8 +181,54 @@ export default function Hero({
 
           </div>
 
-          {/* Row 2: Category, Subcategory, Price */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+          {/* Recent Searches Pills */}
+          {recentSearches.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-0.5 pb-1">
+              <span className="flex items-center gap-1.5 text-[11px] font-extrabold text-natural-dusty uppercase tracking-wider">
+                <Clock className="w-3.5 h-3.5 text-natural-amber" />
+                <span>Recent Searches:</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {recentSearches.map((term) => {
+                  const isActive = searchKeyword.toLowerCase() === term.toLowerCase();
+                  return (
+                    <div
+                      key={term}
+                      onClick={() => setSearchKeyword(term)}
+                      className={`group flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-natural-green text-white border-natural-green shadow-xs'
+                          : 'bg-natural-cream/50 text-natural-text border-natural-border hover:bg-natural-cream hover:border-natural-green/50'
+                      }`}
+                    >
+                      <span>{term}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => removeRecentSearch(e, term)}
+                        title="Remove from recent searches"
+                        className="opacity-50 hover:opacity-100 hover:text-red-500 rounded-full p-0.5 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecentSearches([]);
+                    try { localStorage.removeItem('recent_classified_searches'); } catch {}
+                  }}
+                  className="text-[10px] text-natural-muted hover:text-red-500 font-bold hover:underline ml-1 cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Row 2: Category & Subcategory */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
             
             {/* Category */}
             <div className="relative">
@@ -134,7 +236,7 @@ export default function Hero({
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full text-xs border border-natural-border rounded-xl pl-9 pr-3 py-3 outline-none focus:ring-1 focus:ring-natural-green focus:border-natural-green bg-natural-cream/30 text-natural-text font-medium appearance-none"
+                className="w-full text-xs border border-natural-border rounded-xl pl-9 pr-3 py-3 outline-none focus:ring-1 focus:ring-natural-green focus:border-natural-green bg-natural-cream/30 text-natural-text font-medium appearance-none cursor-pointer"
               >
                 <option value="All Categories">All Categories</option>
                 {CLASSIFIED_CATEGORIES.map(c => (
@@ -150,7 +252,7 @@ export default function Hero({
                 value={selectedSubcategory}
                 onChange={(e) => setSelectedSubcategory(e.target.value)}
                 disabled={selectedCategory === 'All Categories'}
-                className="w-full text-xs border border-natural-border rounded-xl pl-9 pr-3 py-3 outline-none focus:ring-1 focus:ring-natural-green focus:border-natural-green bg-natural-cream/30 disabled:bg-natural-bg disabled:text-natural-muted text-natural-text font-medium appearance-none"
+                className="w-full text-xs border border-natural-border rounded-xl pl-9 pr-3 py-3 outline-none focus:ring-1 focus:ring-natural-green focus:border-natural-green bg-natural-cream/30 disabled:bg-natural-bg disabled:text-natural-muted text-natural-text font-medium appearance-none cursor-pointer"
               >
                 <option value="All Subcategories">All Subcategories</option>
                 {availableSubcategories.map(sub => (
@@ -159,33 +261,95 @@ export default function Hero({
               </select>
             </div>
 
-            {/* Price Max */}
-            <div className="relative">
-              <span className="absolute left-3 top-2.5 font-bold text-natural-dusty text-xs">Max Price: R</span>
-              <input
-                type="number"
-                value={priceMax}
-                onChange={(e) => setPriceMax(e.target.value)}
-                placeholder="Unlimited"
-                className="w-full text-xs border border-natural-border rounded-xl pl-20 pr-3 py-3 outline-none focus:ring-1 focus:ring-natural-green focus:border-natural-green font-bold bg-natural-cream/30 text-natural-text"
-              />
+          </div>
+
+          {/* Interactive Dual-Range Slider & Price Filter Section */}
+          <div className="pt-2 border-t border-natural-border/60 flex flex-col gap-2.5 bg-natural-cream/20 p-3.5 rounded-2xl">
+            <div className="flex justify-between items-center text-[11px] font-bold text-natural-dusty">
+              <span className="flex items-center gap-1.5">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-natural-green" />
+                <span>Dual-Range Price Filter:</span>
+                <span className="text-natural-green font-extrabold">
+                  {!priceMin && !priceMax && "Any Price (All Listings)"}
+                  {priceMin && !priceMax && `From R${Number(priceMin).toLocaleString('en-ZA')}+`}
+                  {!priceMin && priceMax && `Up to R${Number(priceMax).toLocaleString('en-ZA')}`}
+                  {priceMin && priceMax && `R${Number(priceMin).toLocaleString('en-ZA')} – R${Number(priceMax).toLocaleString('en-ZA')}`}
+                </span>
+              </span>
+              {(priceMin || priceMax) && (
+                <button
+                  type="button"
+                  onClick={() => { setPriceMin(''); setPriceMax(''); }}
+                  className="text-[10px] text-red-500 hover:underline font-bold cursor-pointer"
+                >
+                  Clear Price
+                </button>
+              )}
             </div>
 
+            {/* Dual Range Slider */}
+            <DualRangeSlider
+              min={0}
+              max={250000}
+              step={2500}
+              priceMin={priceMin}
+              setPriceMin={setPriceMin}
+              priceMax={priceMax}
+              setPriceMax={setPriceMax}
+            />
+
+            {/* Range Presets */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-[10px] text-natural-muted font-medium">Quick Presets:</span>
+              {[
+                { label: 'Under R1k', min: '', max: '1000' },
+                { label: 'R1k - R10k', min: '1000', max: '10000' },
+                { label: 'R10k - R50k', min: '10000', max: '50000' },
+                { label: 'R50k - R200k', min: '50000', max: '200000' },
+                { label: 'R200k+', min: '200000', max: '' },
+              ].map(preset => {
+                const isActive = priceMin === preset.min && priceMax === preset.max;
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      if (isActive) {
+                        setPriceMin('');
+                        setPriceMax('');
+                      } else {
+                        setPriceMin(preset.min);
+                        setPriceMax(preset.max);
+                      }
+                    }}
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-natural-green text-white border-natural-green shadow-xs'
+                        : 'bg-natural-bg text-natural-text border-natural-border hover:bg-natural-cream hover:border-natural-green/40'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Quick reset actions */}
-          <div className="flex justify-between items-center pt-2 text-[11px] font-bold text-natural-dusty">
+          <div className="flex justify-between items-center pt-1 text-[11px] font-bold text-natural-dusty">
             <button
               onClick={() => {
                 setSearchKeyword('');
                 setSelectedProvince('All Provinces');
                 setSelectedCity('All Cities');
                 setSelectedCategory('All Categories');
+                setSelectedSubcategory('All Subcategories');
+                setPriceMin('');
                 setPriceMax('');
               }}
               className="hover:text-natural-green cursor-pointer text-left transition-colors"
             >
-              Clear filters
+              Clear all filters
             </button>
             <span className="text-natural-muted hidden sm:inline">| Tip: Try our AI assistant chatbot in the bottom corner for smart natural searches!</span>
           </div>
